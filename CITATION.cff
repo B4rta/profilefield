@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use ProfileField, cite this software and the GeoVAE-SGS baseline."
+title: "GeoVAE-Field / ProfileField"
+type: software
+authors:
+  - family-names: Barta
+    given-names: Mark
+repository-code: "https://github.com/B4rta/profilefield"
+license: MIT
+version: 0.1.0
+date-released: 2026-08-30

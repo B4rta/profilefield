@@ -1,0 +1,32 @@
+experiment:
+  name: synthetic_smoke
+  seeds: [2026]
+  output_root: outputs/synthetic
+data:
+  n_side: 10
+  output_dim: 3
+  profile_points: 20
+  matern_nu: 1.5
+  lengthscale: [0.22, 0.32]
+  noise_std: 0.08
+  jitter: 0.01
+  coregionalization:
+    - [1.00, 0.65, -0.15]
+    - [0.65, 1.20, 0.35]
+    - [-0.15, 0.35, 0.90]
+split:
+  n_blocks_x: 5
+  n_blocks_y: 5
+  train_fraction: 0.60
+  validation_fraction: 0.20
+model:
+  kernel_nu: 1.5
+  inducing_points: 24
+  lmc_latents: 3
+  training_steps: 45
+  learning_rate: 0.04
+  jitter: 0.0001
+evaluation:
+  posterior_samples: 64
+  variogram_bins: 7
+  bootstrap_replicates: 100

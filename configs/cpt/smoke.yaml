@@ -1,0 +1,33 @@
+experiment:
+  name: cpt_continuity_smoke
+  seed: 2026
+  seeds: [2026]
+  fold_limit: 1
+  output_root: outputs/cpt
+baseline:
+  manifest: manifests/geovae_sgs_baseline.json
+  repository: third_party/geovae-sgs
+  preserve_published_split: true
+  preserve_profile_representation: true
+  published_pairs: validations/reviewer_analysis/combined_prediction_pairs.csv
+baseline_model:
+  profile_points: 32
+  latent_dim: 2
+  hidden: 32
+  epochs: 2
+  kl_weight: 0.062352834818264306
+  gp_noise_level: 0.0004413460154094174
+  spatial_cv_folds: 2
+  spatial_max_restarts: 0
+  gp_n_restarts: 0
+  spatial_kernels: [matern15]
+model:
+  kernel_nu: 1.5
+  inducing_points: 8
+  lmc_latents: 2
+  training_steps: 3
+  learning_rate: 0.03
+evaluation:
+  posterior_samples: 4
+  bootstrap_replicates: 20
+

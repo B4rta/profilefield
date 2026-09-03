@@ -1,0 +1,44 @@
+experiment:
+  name: biomazon_gedi_rh
+  seeds: [101, 202, 303, 404, 505]
+  output_root: outputs/biomazon
+data:
+  root_env: BIOMAZON_ROOT
+  table: features_gedi_rh.parquet
+  sample_id_column: sample_id
+  x_column: x
+  y_column: y
+  region_column: region
+  block_column: spatial_block
+  split_column: split
+  feature_prefixes: [s1_, s2_, alos_, dem_, dw_, alphaearth_]
+  rh_prefix: RH
+  expected_source_doi: 10.26165/JUELICH-DATA/2YP2PZ
+split:
+  strategy: official
+  n_blocks_x: 8
+  n_blocks_y: 8
+  train_fraction: 0.70
+  validation_fraction: 0.15
+  calibration_fraction: 0.05
+preprocessing:
+  feature_scaling: standard
+  profile_scaling: none
+model:
+  latent_dim: 8
+  hidden_dim: 128
+  kernel_nu: 1.5
+  inducing_points: 256
+  lmc_latents: 6
+  training_steps: 1500
+  learning_rate: 0.001
+  gp_training_steps: 1000
+  gp_learning_rate: 0.02
+  kl_weight: 0.05
+  ridge_alpha: 1.0
+  tree_estimators: 200
+  tree_min_samples_leaf: 3
+evaluation:
+  posterior_samples: 256
+  variogram_bins: 10
+  bootstrap_replicates: 2000

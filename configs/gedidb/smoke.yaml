@@ -1,0 +1,44 @@
+experiment:
+  name: gedidb_rh_smoke
+  seeds: [2026]
+  output_root: outputs/gedidb
+data:
+  root: data/gedidb_amazon
+  table: tapajos.parquet
+  sample_id_column: sample_id
+  x_column: longitude
+  y_column: latitude
+  region_column: region
+  block_column: spatial_block
+  feature_prefixes: [ctx_]
+  rh_prefix: rh_
+  expected_source_doi: GFZ-gediDB-public-v002
+  source_manifest: manifest.json
+split:
+  strategy: geographic_blocks
+  n_blocks_x: 5
+  n_blocks_y: 5
+  train_fraction: 0.60
+  validation_fraction: 0.20
+  calibration_fraction: 0.10
+preprocessing:
+  feature_scaling: standard
+  profile_scaling: none
+model:
+  latent_dim: 3
+  hidden_dim: 32
+  kernel_nu: 1.5
+  inducing_points: 24
+  lmc_latents: 3
+  training_steps: 5
+  learning_rate: 0.003
+  gp_training_steps: 5
+  gp_learning_rate: 0.03
+  kl_weight: 0.05
+  ridge_alpha: 1.0
+  tree_estimators: 10
+  tree_min_samples_leaf: 2
+evaluation:
+  posterior_samples: 8
+  variogram_bins: 5
+  bootstrap_replicates: 50

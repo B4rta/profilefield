@@ -1,0 +1,32 @@
+experiment:
+  name: cpt_5seed
+  seed: 101
+  seeds: [101, 202, 303, 404, 505]
+  fold_limit: 10
+  output_root: outputs/cpt
+baseline:
+  manifest: manifests/geovae_sgs_baseline.json
+  repository: third_party/geovae-sgs
+  preserve_published_split: true
+  preserve_profile_representation: true
+  published_pairs: validations/reviewer_analysis/combined_prediction_pairs.csv
+baseline_model:
+  profile_points: 174
+  latent_dim: 9
+  hidden: 293
+  epochs: 300
+  kl_weight: 0.062352834818264306
+  gp_noise_level: 0.0004413460154094174
+  spatial_cv_folds: 4
+  spatial_max_restarts: 8
+  gp_n_restarts: 8
+  spatial_kernels: [matern05, matern15, matern25, rbf]
+model:
+  kernel_nu: 1.5
+  inducing_points: 32
+  lmc_latents: 5
+  training_steps: 1000
+  learning_rate: 0.02
+evaluation:
+  posterior_samples: 256
+  bootstrap_replicates: 2000

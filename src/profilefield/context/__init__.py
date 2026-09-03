@@ -1,0 +1,1 @@
+"""Dense environmental context representations."""

@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/B4rta/geovae-sgs.git",
+  "commit": "7cdf7d9690b0e8a08b103074d2826d9391119ffc",
+  "commit_date": "2026-08-03",
+  "submodule_path": "third_party/geovae-sgs",
+  "sgs_core_sha256": "c17fed3c517dbeb98b02488a43781143471d342dec6533778840089b81405a49",
+  "sample_data_tree_sha256": "525f905c90ba5087c15bfc5110c0563cebb60751648d09e671656d28989a8079",
+  "policy": "immutable"
+}
+
