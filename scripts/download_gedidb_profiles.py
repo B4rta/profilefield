@@ -1,4 +1,4 @@
-"""Query quality-filtered Amazon GEDI profiles from the public GFZ gediDB."""
+"""Query quality-filtered GEDI profiles from the public GFZ gediDB."""
 
 from __future__ import annotations
 
@@ -252,6 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--regions", nargs="*", choices=[region.name for region in REGIONS])
+    parser.add_argument("--region-spec", type=Path, help="JSON list of name/longitude/latitude objects")
     return parser
 
 
@@ -262,7 +263,19 @@ def main() -> int:
     destination = args.output.resolve()
     destination.mkdir(parents=True, exist_ok=True)
     selected_names = set(args.regions or [region.name for region in REGIONS])
-    regions = [region for region in REGIONS if region.name in selected_names]
+    if args.region_spec and args.regions:
+        raise SystemExit("Use --region-spec or --regions, not both")
+    regions = (
+        [Region(**item) for item in json.loads(args.region_spec.read_text(encoding="utf-8"))]
+        if args.region_spec else [region for region in REGIONS if region.name in selected_names]
+    )
+    if not regions or len({region.name for region in regions}) != len(regions):
+        raise ValueError("Region names must be nonempty and unique")
+    for region in regions:
+        if not region.name or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789_-" for char in region.name):
+            raise ValueError("Region names must be safe lowercase filename components")
+        if not -180 <= region.longitude <= 180 or not -90 <= region.latitude <= 90:
+            raise ValueError("Invalid region coordinates")
     provider = LowMemoryGEDIProvider()
     region_manifests: list[dict[str, Any]] = []
     frames: list[pd.DataFrame] = []

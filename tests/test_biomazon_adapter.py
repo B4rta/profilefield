@@ -10,6 +10,8 @@ import pytest
 
 from profilefield.data.biomazon import load_biomazon
 from profilefield.experiments.biomazon import run_biomazon
+from profilefield.experiments.external import _run_source
+from profilefield.reproducibility import sha256_file
 
 
 def test_biomazon_adapter_official_split_and_manifest(tmp_path: Path) -> None:
@@ -209,6 +211,21 @@ def test_tiny_biomazon_model_suite_runs_end_to_end(tmp_path: Path, signed_crossf
             metrics = pd.read_csv(run_path / "metrics_profile.csv")
             low_rh = metrics.loc[(metrics.model == "Per-RH random forest") & (metrics.scope == "RH0") & (metrics.metric == "rmse"), "value"].item()
             assert low_rh < .1
+            external = pd.DataFrame(rows[:4]).copy()
+            external["sample_id"] = [f"external-{i}" for i in range(len(external))]
+            external["x"], external["y"] = 175.0, -38.0
+            external["official_spatial_block"] = ["external-a", "external-a", "external-b", "external-b"]
+            external_path = tmp_path / "external.parquet"
+            external.to_parquet(external_path, index=False)
+            external_config = {"experiment": {"name": "e", "output_root": str(short_output)},
+                               "external": {"table": str(external_path), "minimum_source_distance_km": 1000}}
+            source = {"path": str(run_path), "seed": 9,
+                      "seal_sha256": sha256_file(run_path / "artifact_integrity.json")}
+            result = _run_source(source, external, external_config, run_path, tmp_path)
+            external_metrics = pd.read_csv(result / "metrics_profile.csv")
+            assert external_metrics.model.nunique() == 8
+            assert np.isfinite(external_metrics.value).all()
+            assert source["seal_sha256"] == sha256_file(run_path / "artifact_integrity.json")
     finally:
         if short_output.exists():
             shutil.rmtree(short_output)

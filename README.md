@@ -96,6 +96,35 @@ partitions are retained, and calibration is carved only from training blocks. Th
 adapter remains available, but no Biomazon performance value is claimed because its endpoint was
 not accessible. Large source data, credentials, caches and generated runs are ignored by Git.
 
+## Frozen independent geographic validation
+
+The external protocol in `configs/gedidb_v2/external_validation.yaml` transfers the
+existing French Guiana footprint models to a North Island, New Zealand landscape.
+The query cell is chosen from AGBD coordinate counts alone, before accessing its RH
+outcomes. Freeze source artifact hashes before querying GEDI:
+
+```powershell
+python scripts/freeze_external.py
+python scripts/download_gedidb_profiles.py --output data/nz_join --region-spec configs/gedidb_v2/external_region.json
+python scripts/join_agbd_gedidb.py --gedi-profiles data/nz_join/gedi_profiles.parquet --output data/nz_join/nz_eo_rh.parquet
+python scripts/run_external.py --protocol <sealed-protocol-directory>
+```
+
+All eight source comparators retain their fitted model states, feature transforms,
+validation-selected weights, and calibration multipliers. No external targets are
+used for fitting, tuning, or calibration. Because older source checkpoints did not
+save residual covariance matrices, the evaluator reconstructs these from the same
+source-only cross-fitting folds and verifies their residual statistics. It does not
+retrain production forests, neural networks, or GPs. Trusted checkpoint restoration
+is tested against original predictive means, variances, and draws.
+
+External case selection uses sorted IDs and a frozen random seed, never scores.
+The evaluator checks feature identity, source checksums, footprint-ID disjointness,
+and minimum geographic separation. A second region tests geographic transfer, not
+universal biome independence; repeated fitting seeds are still not independent sites.
+The query box can contain mixed land cover and is not represented as a forest-only
+probability sample. Existing French Guiana results remain separate and unchanged.
+
 ## Data-splitting safeguards
 
 All normalization, residual bases, empirical covariances and event thresholds are fit on training

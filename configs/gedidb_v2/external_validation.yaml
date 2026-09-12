@@ -1,0 +1,20 @@
+experiment:
+  name: nz_frozen
+  output_root: outputs/external
+  seeds: [101, 202, 303, 404, 505]
+source:
+  run_root: outputs/gedidb_v2/gedi_eo_rh
+  config: configs/gedidb_v2/eo_context.yaml
+external:
+  table: data/nz_join/nz_eo_rh.parquet
+  maximum_cases: 1635
+  selection_seed: 2026
+  region_spec: configs/gedidb_v2/external_region.json
+  selection_rule: densest 0.1 degree AGBD coordinate cell in 173E-178E, 40S-37S; no response-based selection
+  minimum_cases: 100
+  minimum_source_distance_km: 1000
+  lower_bound: null
+  models: all_eight_source_comparators
+  refit_on_external: false
+  recalibrate_on_external: false
+  retune_on_external: false

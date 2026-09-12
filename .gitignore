@@ -14,6 +14,7 @@ data/biomazon/
 data/agbd_raw/
 data/gedidb_amazon/
 data/gedidb_agbd_join/
+data/nz_join/
 *.pt
 *.pth
 *.ckpt
