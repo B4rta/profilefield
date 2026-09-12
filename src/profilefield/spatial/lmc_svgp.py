@@ -129,11 +129,31 @@ class LMCSVGP(nn.Module):
         x_tensor = as_tensor(transforms.x.transform(coordinates), self.device, self.dtype)
         gp.eval()
         likelihood.eval()
+        if posterior_samples < 1:
+            raise ValueError("posterior_samples must be positive")
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
             predictive = likelihood(gp(x_tensor))
             mean_scaled = predictive.mean.cpu().numpy()
             variance_scaled = predictive.variance.cpu().numpy()
-            draws_scaled = predictive.rsample(torch.Size([posterior_samples])).cpu().numpy()
+            # A low-rank root of the full multi-output covariance can truncate
+            # observation noise. Sample exact spatial latent fields before LMC
+            # mixing, then add independent task/global noise and LMC jitter.
+            strategy = gp.variational_strategy
+            latent = strategy.base_variational_strategy(x_tensor, diag=False)
+            with gpytorch.settings.max_cholesky_size(len(x_tensor) + 1):
+                latent_draws = latent.rsample(torch.Size([posterior_samples]))
+            mixed = latent_draws.transpose(-1, -2) @ strategy.lmc_coefficients
+            if likelihood.rank != 0:
+                raise RuntimeError("Exact LMC sampler currently requires diagonal task noise")
+            noise_variance = torch.full(
+                (self.output_dim,), float(strategy.jitter_val), dtype=self.dtype, device=self.device
+            )
+            if likelihood.has_task_noise:
+                noise_variance = noise_variance + likelihood.task_noises
+            if likelihood.has_global_noise:
+                noise_variance = noise_variance + likelihood.noise
+            mixed = mixed + torch.randn_like(mixed) * noise_variance.sqrt()
+            draws_scaled = mixed.cpu().numpy()
             covariance_scaled = (
                 predictive.covariance_matrix.cpu().numpy() if full_covariance else None
             )

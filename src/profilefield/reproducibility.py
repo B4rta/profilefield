@@ -86,8 +86,15 @@ def environment_snapshot(project_root: str | Path) -> dict[str, Any]:
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             packages[name] = "not-installed"
+    source_root = Path(project_root) / "src" / "profilefield"
+    source_files = {
+        path.relative_to(Path(project_root)).as_posix(): sha256_file(path)
+        for path in sorted(source_root.rglob("*.py")) if path.is_file()
+    }
     return {
         "git_sha": git_sha(project_root),
+        "source_file_sha256": source_files,
+        "source_tree_sha256": sha256_json(source_files),
         "python": sys.version,
         "executable": sys.executable,
         "platform": platform.platform(),

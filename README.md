@@ -4,10 +4,28 @@ Repository: [github.com/B4rta/profilefield](https://github.com/B4rta/profilefiel
 
 ProfileField is a research framework for adaptive functional residual
 coregionalization in conditional simulation of spatially distributed environmental profiles.
-Its main real-data model combines a strong per-ordinate random-forest context mean, a fixed
+Its main real-data model combines a multioutput random-forest context mean, a fixed
 local-linear residual basis, matched independent and coregionalized sparse variational GPs,
 validation-selected spatial-dependence shrinkage, isolated joint calibration, and
 constraint-preserving posterior draws.
+
+Version 0.2 supports signed monotone relative-height profiles, block-held-out
+training residuals, and exact spatial latent-factor sampling with explicit
+observation noise. GEDI configurations in `configs/gedidb_v2/` use these settings.
+The random forest is a single multioutput estimator sharing tree splits across
+ordinates. Older artifact labels saying “Per-RH random forest” refer to this
+same estimator, not to separately fitted forests.
+
+Empirical CRPS and quantile coverage score the delivered ensemble. Gaussian
+moment scores are retained as auxiliary diagnostics. Whole-profile coverage of
+marginal bands is descriptive; it is not a simultaneous-coverage guarantee.
+Repeated optimizer seeds measure computational variability and are not new
+independent geographical observations.
+
+Exact sampling factors one location-by-location covariance per latent process;
+its cost is cubic in the number of queried locations. Sparse training does not
+make this prediction step linear. The `full_covariance=False` argument avoids
+returning the full output covariance but still generates joint spatial draws.
 
 The published [GeoVAE-SGS](https://github.com/B4rta/geovae-sgs) implementation is included as
 a read-only, commit-pinned Git submodule. ProfileField never edits that scientific baseline.
@@ -22,6 +40,15 @@ py -3.12 -m venv .venv
 .venv\Scripts\profilefield synthetic --config configs/synthetic/smoke.yaml
 .venv\Scripts\pytest
 ```
+
+Run `python scripts/validate_sampler.py` to reproduce the numerical covariance
+diagnostic. New runs include SHA-256 checksums for every artifact and a source
+file fingerprint. Legacy runs remain readable with their weaker integrity
+status explicitly reported.
+
+Before pushing, run `python scripts/check_release.py`. The same privacy check
+runs in CI. Manuscript drafts, article figures/tables, private documentation and
+publication build utilities are excluded from this repository.
 
 Use the files in `configs/synthetic/` for deterministic experiments and sensitivity checks.
 Every run produces a self-contained

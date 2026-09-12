@@ -4,26 +4,52 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.optimize import isotonic_regression
 
 FloatArray = NDArray[np.float64]
 
 
-def project_monotone_profiles(values: FloatArray) -> FloatArray:
-    """Project profile vectors onto the non-negative monotone cone."""
+def project_monotone_profiles(
+    values: FloatArray, *, lower_bound: float | None = 0.0
+) -> FloatArray:
+    """Euclidean projection onto ordered profiles, optionally bounded below.
+
+    Pool-adjacent-violators minimizes squared distance independently for each
+    profile along the last axis. Applying the constant lower bound *after* the
+    unconstrained isotonic projection gives the bounded least-squares solution.
+    Use ``lower_bound=None`` for signed relative-height observations, whose low
+    percentiles can legitimately lie below the estimated ground surface.
+
+    This differs from the historical cumulative-maximum repair, which only
+    raises entries and is not the closest ordered profile in Euclidean distance.
+    """
 
     profiles = np.asarray(values, dtype=np.float64)
-    return np.maximum.accumulate(np.maximum(profiles, 0.0), axis=-1)
+    if profiles.ndim == 0 or profiles.shape[-1] == 0:
+        raise ValueError("Profiles must have a non-empty final output axis")
+    if not np.isfinite(profiles).all():
+        raise ValueError("Profiles must contain only finite values")
+    if lower_bound is not None and not np.isfinite(lower_bound):
+        raise ValueError("lower_bound must be finite or None")
+    projected = profiles.copy()
+    flat = projected.reshape(-1, profiles.shape[-1])
+    # Valid rows are already exact minimizers; avoiding solver calls matters for
+    # large ensembles of profiles with an intrinsically ordered context mean.
+    invalid = np.flatnonzero(np.any(np.diff(flat, axis=1) < 0.0, axis=1))
+    for index in invalid:
+        flat[index] = isotonic_regression(flat[index]).x
+    if lower_bound is not None:
+        np.maximum(projected, lower_bound, out=projected)
+    return projected
 
 
 class FunctionalResidualBasis:
     """Fixed local-linear functional basis with train-only residual centring.
 
-    PCA is intentionally not used here: its scores are decorrelated on the
-    training set by construction and would remove the zero-lag cross-output
-    structure that a coregionalized spatial process is meant to learn. Instead,
-    smooth residual profiles are represented by coefficients of overlapping
-    piecewise-linear hat functions. Their correlations remain scientifically
-    meaningful and can differ with spatial lag.
+    Overlapping piecewise-linear hat functions keep the representation fixed
+    across spatial models. PCA decorrelates scores at zero lag but need not
+    remove cross-covariance at nonzero lags; this basis is a controlled design
+    choice, not a claim that coregionalization requires correlated PCA scores.
     """
 
     def __init__(self, n_components: int, ridge: float = 1e-6) -> None:
@@ -81,6 +107,7 @@ class FunctionalResidualBasis:
         context_mean: FloatArray,
         *,
         enforce_monotonicity: bool = True,
+        lower_bound: float | None = 0.0,
     ) -> FloatArray:
         basis, _, residual_mean = self._require_fitted()
         score_array = np.asarray(scores, dtype=np.float64)
@@ -90,7 +117,11 @@ class FunctionalResidualBasis:
         if mean_array.shape[-1] != basis.shape[0]:
             raise ValueError("context_mean has the wrong profile dimension")
         decoded = score_array @ basis.T + residual_mean + mean_array
-        return project_monotone_profiles(decoded) if enforce_monotonicity else decoded
+        return (
+            project_monotone_profiles(decoded, lower_bound=lower_bound)
+            if enforce_monotonicity
+            else decoded
+        )
 
     def sample_reconstruction_nugget(
         self,
@@ -140,6 +171,8 @@ def select_residual_mean_weight(
     residual_correction: FloatArray,
     truth: FloatArray,
     candidates: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0),
+    *,
+    lower_bound: float | None = 0.0,
 ) -> float:
     """Select spatial residual-mean shrinkage on validation observations only."""
 
@@ -153,6 +186,8 @@ def select_residual_mean_weight(
         raise ValueError("candidates must be non-empty values in [0, 1]")
     losses = []
     for weight in valid:
-        prediction = project_monotone_profiles(context + weight * correction)
+        prediction = project_monotone_profiles(
+            context + weight * correction, lower_bound=lower_bound
+        )
         losses.append(float(np.mean((prediction - observed) ** 2)))
     return valid[int(np.argmin(losses))]

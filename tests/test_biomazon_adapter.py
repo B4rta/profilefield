@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from profilefield.data.biomazon import load_biomazon
 from profilefield.experiments.biomazon import run_biomazon
@@ -123,7 +124,8 @@ def test_leave_region_out_keeps_calibration_and_test_blocks_disjoint(tmp_path: P
             assert not left & right
 
 
-def test_tiny_biomazon_model_suite_runs_end_to_end(tmp_path: Path) -> None:
+@pytest.mark.parametrize("signed_crossfit", [False, True])
+def test_tiny_biomazon_model_suite_runs_end_to_end(tmp_path: Path, signed_crossfit: bool) -> None:
     rows = []
     assignments = [
         ("a", "train"),
@@ -147,7 +149,7 @@ def test_tiny_biomazon_model_suite_runs_end_to_end(tmp_path: Path) -> None:
                     "split": split,
                     "s1_a": feature,
                     "s2_b": feature**2,
-                    "RH0": 0.05,
+                    "RH0": -1.0 if signed_crossfit else 0.05,
                     "RH50": 1.0 + feature,
                     "RH100": 2.0 + 2 * feature,
                 }
@@ -191,12 +193,22 @@ def test_tiny_biomazon_model_suite_runs_end_to_end(tmp_path: Path) -> None:
         },
         "evaluation": {"posterior_samples": 4, "variogram_bins": 2},
     }
+    if signed_crossfit:
+        config["model"].update({"residual_training": "spatial_crossfit",
+                                "residual_crossfit_folds": 2, "profile_lower_bound": None})
     try:
         [run_path] = run_biomazon(config, tmp_path)
         assert (run_path / "metrics_profile.csv").exists()
         assert (run_path / "models/lmc_svgp.pt").exists()
         metadata = pd.read_json(run_path / "run_metadata.json", typ="series")
         assert metadata["status"] == "complete"
+        assert (run_path / "artifact_integrity.json").exists()
+        assert (run_path / "metrics_cases.csv").exists()
+        if signed_crossfit:
+            assert metadata["residual_training"] == "spatial_crossfit"
+            metrics = pd.read_csv(run_path / "metrics_profile.csv")
+            low_rh = metrics.loc[(metrics.model == "Per-RH random forest") & (metrics.scope == "RH0") & (metrics.metric == "rmse"), "value"].item()
+            assert low_rh < .1
     finally:
         if short_output.exists():
             shutil.rmtree(short_output)

@@ -11,7 +11,7 @@ from typing import Any
 import pandas as pd
 
 from profilefield.config import Config, save_config
-from profilefield.reproducibility import environment_snapshot, sha256_json
+from profilefield.reproducibility import environment_snapshot, sha256_file, sha256_json
 
 REQUIRED_TABLES = ("metrics_profile", "metrics_blocks", "metrics_latent", "calibration")
 REQUIRED_FILES = (
@@ -91,11 +91,20 @@ class RunArtifacts:
         )
         if extra:
             metadata.update(extra)
+        metadata["artifact_contract_version"] = 2
         self.write_json("run_metadata.json", metadata)
         for name in REQUIRED_TABLES:
             path = self.path / f"{name}.csv"
             if not path.exists():
                 self.write_table(name, [])
+        # Seal every produced file, including metrics/config/checkpoints, after
+        # writers finish. Historical v1 runs remain readable but are identified.
+        inventory = {
+            path.relative_to(self.path).as_posix(): sha256_file(path)
+            for path in sorted(self.path.rglob("*"))
+            if path.is_file() and path.name != "artifact_integrity.json"
+        }
+        self.write_json("artifact_integrity.json", {"version": 2, "files": inventory})
 
 
 def _json_default(value: Any) -> Any:
@@ -128,9 +137,26 @@ def validate_run_directory(path: str | Path) -> dict[str, Any]:
         raise RuntimeError("data_manifest.json hash does not match run_metadata.json")
     if metadata.get("split_manifest_hash") != sha256_json(split_manifest):
         raise RuntimeError("split_manifest.json hash does not match run_metadata.json")
+    integrity_path = run / "artifact_integrity.json"
+    integrity = "legacy_manifest_hashes_only"
+    if metadata.get("artifact_contract_version", 1) >= 2 and not integrity_path.is_file():
+        raise RuntimeError("Version 2 run is missing artifact_integrity.json")
+    if integrity_path.is_file():
+        inventory = json.loads(integrity_path.read_text(encoding="utf-8"))["files"]
+        observed_paths = {
+            item.relative_to(run).as_posix() for item in run.rglob("*")
+            if item.is_file() and item.name != "artifact_integrity.json"
+        }
+        if set(inventory) != observed_paths:
+            raise RuntimeError("Run file inventory changed after finalization")
+        for name, expected in inventory.items():
+            if sha256_file(run / name) != expected:
+                raise RuntimeError(f"Artifact SHA-256 mismatch: {name}")
+        integrity = "sha256_all_artifacts"
     return {
         "path": str(run),
         "status": "valid",
+        "integrity": integrity,
         "seed": metadata.get("seed"),
         "wall_time_seconds": metadata.get("wall_time_seconds"),
     }

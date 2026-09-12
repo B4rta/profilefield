@@ -118,16 +118,22 @@ class IndependentSVGP(nn.Module):
         x_tensor = as_tensor(transforms.x.transform(coordinates), self.device, self.dtype)
         gp.eval()
         likelihood.eval()
-        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        if posterior_samples < 1:
+            raise ValueError("posterior_samples must be positive")
+        with torch.no_grad(), gpytorch.settings.fast_pred_var(), gpytorch.settings.max_cholesky_size(len(x_tensor) + 1):
             predictive = likelihood(gp(x_tensor))
             mean_scaled = predictive.mean.transpose(0, 1).cpu().numpy()
             variance_scaled = predictive.variance.transpose(0, 1).cpu().numpy()
             draws_scaled = predictive.rsample(torch.Size([posterior_samples]))
             draws_scaled = draws_scaled.permute(0, 2, 1).cpu().numpy()
-            batch_covariance = predictive.covariance_matrix.cpu().numpy()
+            batch_covariance = (
+                predictive.covariance_matrix.cpu().numpy() if full_covariance else None
+            )
         n = len(x_tensor)
         joint: FloatArray | None = None
         if full_covariance:
+            if batch_covariance is None:
+                raise RuntimeError("Requested covariance was not computed")
             joint = np.zeros((n * self.output_dim, n * self.output_dim), dtype=np.float64)
             for task in range(self.output_dim):
                 positions = np.arange(task, n * self.output_dim, self.output_dim)

@@ -1,0 +1,51 @@
+experiment:
+  name: gedi_eo_rh
+  seeds: [101, 202, 303, 404, 505]
+  output_root: outputs/gedidb_v2
+data:
+  root: data/gedidb_agbd_join
+  table: french_guiana_eo_rh.parquet
+  sample_id_column: sample_id
+  x_column: longitude
+  y_column: latitude
+  region_column: region
+  block_column: official_spatial_block
+  split_column: agbd_split
+  feature_prefixes: [eo_center_s2_, eo_mean3_s2_, ctx_]
+  rh_prefix: rh_
+  expected_source_doi: ETH-AGBD_raw-plus-GFZ-gediDB
+  source_manifest: french_guiana_eo_rh.manifest.json
+split:
+  strategy: official
+  n_blocks_x: 8
+  n_blocks_y: 8
+  calibration_fraction: 0.10
+preprocessing:
+  feature_scaling: standard
+  profile_scaling: none
+model:
+  latent_dim: 8
+  hidden_dim: 128
+  kernel_nu: 1.5
+  inducing_points: 128
+  lmc_latents: 6
+  training_steps: 800
+  learning_rate: 0.001
+  gp_training_steps: 800
+  gp_learning_rate: 0.02
+  kl_weight: 0.05
+  ridge_alpha: 1.0
+  tree_estimators: 300
+  tree_min_samples_leaf: 3
+  residual_training: spatial_crossfit
+  residual_crossfit_folds: 5
+  profile_lower_bound: null
+  residual_mean_weight_grid: [0.0, 0.25, 0.5, 0.75, 1.0]
+  spatial_dependence_weight_grid: [0.0, 0.25, 0.5, 0.75, 1.0]
+evaluation:
+  posterior_samples: 256
+  validation_posterior_samples: 64
+  variogram_bins: 10
+  bootstrap_replicates: 2000
+  posterior_variogram_pairs: 50000
+  posterior_variogram_draws: 16

@@ -18,9 +18,11 @@ from sklearn.linear_model import Ridge
 from profilefield.artifacts import RunArtifacts
 from profilefield.calibration.scaling import JointVarianceScaleCalibrator
 from profilefield.config import Config
+from profilefield.context.crossfit import spatial_crossfit_predictions
 from profilefield.data.biomazon import load_biomazon
 from profilefield.data.preprocessing import TrainOnlyStandardizer
 from profilefield.evaluation.bootstrap import block_bootstrap_interval
+from profilefield.evaluation.ensemble import empirical_crps, ensemble_calibration_rows
 from profilefield.evaluation.figures import calibration_figure, covariance_figure, variogram_figure
 from profilefield.evaluation.joint import (
     derived_profile_rows,
@@ -42,8 +44,10 @@ from profilefield.evaluation.spatial import (
 )
 from profilefield.profiles.functional_residual import (
     FunctionalResidualBasis,
-    project_monotone_profiles,
     select_residual_mean_weight,
+)
+from profilefield.profiles.functional_residual import (
+    project_monotone_profiles as isotonic_profiles,
 )
 from profilefield.profiles.models import (
     ContextualProfileVAE,
@@ -92,6 +96,11 @@ def _run_seed(config: Config, seed: int, root: Path) -> Path:
     x_train = features[split.train]
     y_train = dataset.profiles[split.train]
     model_config = config["model"]
+    lower_bound = model_config.get("profile_lower_bound", 0.0)
+
+    def project_monotone_profiles(values: FloatArray) -> FloatArray:
+        return isotonic_profiles(values, lower_bound=lower_bound)
+
     sample_count = int(config["evaluation"]["posterior_samples"])
     rng = np.random.default_rng(seed)
     predictors: list[ProfilePredictor] = []
@@ -120,6 +129,20 @@ def _run_seed(config: Config, seed: int, root: Path) -> Path:
         n_jobs=-1,
     ).fit(x_train, y_train)
     forest_train_prediction = forest.predict(x_train)
+    residual_mode = str(model_config.get("residual_training", "in_sample"))
+    crossfit_manifest: list[dict[str, Any]] = []
+    if residual_mode == "spatial_crossfit":
+        forest_train_prediction, crossfit_manifest = spatial_crossfit_predictions(
+            forest, x_train, y_train, split.block_ids[split.train], train_ids,
+            folds=int(model_config.get("residual_crossfit_folds", 5)),
+        )
+    elif residual_mode != "in_sample":
+        raise ValueError("residual_training must be in_sample or spatial_crossfit")
+    artifacts.write_json("diagnostics/residual_crossfit.json", {
+        "mode": residual_mode, "folds": crossfit_manifest,
+        "production_mean": "multioutput_random_forest_fitted_on_all_outer_training_cases",
+        "training_residual_mse": float(np.mean((y_train - forest_train_prediction) ** 2)),
+    })
     tree_covariance = _residual_covariance(y_train, forest_train_prediction)
     predictors.append(
         ProfilePredictor(
@@ -364,6 +387,7 @@ def _run_seed(config: Config, seed: int, root: Path) -> Path:
                         "residual_mean_weight_grid", [0.0, 0.25, 0.5, 0.75, 1.0]
                     )
                 ),
+                lower_bound=lower_bound,
             )
             validation_rng = np.random.default_rng(seed + 8001)
             iid_score_draws = (
@@ -491,7 +515,7 @@ def _run_seed(config: Config, seed: int, root: Path) -> Path:
         samples = project_monotone_profiles(
             shrunk_mean[None, :, :] + centered_spatial_draws + nugget
         )
-        mean = project_monotone_profiles(shrunk_mean)
+        mean = np.mean(samples, axis=0)
         return ProfileDistribution(
             mean=mean.astype(np.float64),
             variance=np.var(samples, axis=0) + 1e-8,
@@ -543,11 +567,25 @@ def _run_seed(config: Config, seed: int, root: Path) -> Path:
     estimated_variograms: dict[str, list[dict[str, Any]]] = {}
     derived_thresholds: dict[str, float] = {}
     calibration_scales: dict[str, float] = {}
+    case_score_rows: list[dict[str, Any]] = []
+    empirical_coverage: list[dict[str, Any]] = []
     for predictor in predictors:
         calibration_distribution = (
             predictor.predict(split.calibration) if len(split.calibration) else None
         )
         distribution = predictor.predict(split.test)
+        # Summarize the delivered, constraint-respecting ensemble consistently.
+        # GEDI lower-percentile RH values may legitimately be below zero.
+        if calibration_distribution is not None:
+            cal_samples = project_monotone_profiles(calibration_distribution.samples)
+            calibration_distribution = ProfileDistribution(
+                cal_samples.mean(axis=0), cal_samples.var(axis=0) + 1e-8, cal_samples
+            )
+        projected_samples = project_monotone_profiles(distribution.samples)
+        distribution = ProfileDistribution(
+            projected_samples.mean(axis=0), projected_samples.var(axis=0) + 1e-8,
+            projected_samples,
+        )
         if calibration_distribution is not None:
             calibrator = JointVarianceScaleCalibrator().fit(
                 dataset.profiles[split.calibration],
@@ -570,6 +608,20 @@ def _run_seed(config: Config, seed: int, root: Path) -> Path:
             mean = np.mean(samples, axis=0)
             distribution = ProfileDistribution(mean, np.var(samples, axis=0) + 1e-8, samples)
         test_distributions[predictor.name] = distribution
+        actual_crps = empirical_crps(dataset.profiles[split.test], distribution.samples)
+        empirical_coverage.extend(ensemble_calibration_rows(
+            predictor.name, dataset.profiles[split.test], distribution.samples
+        ))
+        profile_rows.append({"model": predictor.name, "scope": "all",
+                             "metric": "profile_empirical_crps", "value": float(actual_crps.mean())})
+        per_case_mse = np.mean((distribution.mean - dataset.profiles[split.test]) ** 2, axis=1)
+        for position, index in enumerate(split.test):
+            case_score_rows.append({
+                "model": predictor.name, "sample_id": dataset.sample_ids[index],
+                "block_id": int(split.block_ids[index]), "seed": seed,
+                "mean_squared_error": float(per_case_mse[position]),
+                "empirical_crps": float(actual_crps[position].mean()),
+            })
         profile_rows.extend(
             profile_metric_rows(
                 predictor.name,
@@ -774,6 +826,8 @@ def _run_seed(config: Config, seed: int, root: Path) -> Path:
     artifacts.write_table("metrics_blocks", block_rows)
     artifacts.write_table("metrics_latent", latent_rows)
     artifacts.write_table("calibration", coverage)
+    artifacts.write_table("calibration_empirical", empirical_coverage)
+    artifacts.write_table("metrics_cases", case_score_rows)
     artifacts.write_json(
         "diagnostics/preprocessing.json",
         {
@@ -789,6 +843,10 @@ def _run_seed(config: Config, seed: int, root: Path) -> Path:
             "fit_sample_ids": functional_basis.fit_sample_ids_,
             "fit_on_training_only": True,
             "context_model": "Per-RH random forest",
+            "context_implementation": "single_multioutput_RandomForestRegressor",
+            "residual_training": residual_mode,
+            "profile_projection": "euclidean_isotonic",
+            "profile_lower_bound": lower_bound,
             "components": functional_dim,
             "basis_kind": "fixed_local_linear_hat_functions",
             "component_score_variance_ratio": functional_basis.score_variance_ratio_,
@@ -869,6 +927,9 @@ def _run_seed(config: Config, seed: int, root: Path) -> Path:
             "validation_count": len(split.validation),
             "calibration_count": len(split.calibration),
             "test_count": len(split.test),
+            "evaluation_version": "2.0",
+            "residual_training": residual_mode,
+            "profile_lower_bound": lower_bound,
         },
     )
     return artifacts.path
@@ -893,8 +954,8 @@ def _regression_distribution(
     samples = mean[None, :, :] + noise
     output_mean = mean
     if enforce_monotonicity:
-        samples = np.maximum.accumulate(np.maximum(samples, 0.0), axis=-1)
-        output_mean = np.maximum.accumulate(np.maximum(mean, 0.0), axis=-1)
+        samples = isotonic_profiles(samples)
+        output_mean = np.mean(samples, axis=0)
     return ProfileDistribution(
         mean=output_mean,
         variance=np.var(samples, axis=0) + 1e-8,
